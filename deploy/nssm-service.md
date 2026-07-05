@@ -39,6 +39,12 @@ nssm remove  ModalityEmulator confirm
 
 ## Notes
 
+- Windows services run in an isolated session with no desktop, so the exam
+  page's "Choose folder..." native dialog cannot appear when the app runs
+  under NSSM. The button reports this and the in-page folder browser keeps
+  working; students who need the native dialog should run
+  `start-modality.bat` instead.
+
 - The web server binds 127.0.0.1 only, so the service is reachable just from
   a browser on this workstation; no inbound firewall rule is needed.
 - All DICOM traffic is outbound from this box to the Linux box, so no DICOM

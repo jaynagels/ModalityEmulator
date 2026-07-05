@@ -63,9 +63,37 @@ Every setting also accepts a `MODEMU_*` environment variable override (see
 
 ## Sample studies
 
-- Create `C:\LabSamples` and put **one subfolder per sample study** in it,
-  e.g. `C:\LabSamples\CT Chest Demo\...`. Nesting inside a sample folder is
-  fine; every readable DICOM file under it belongs to that sample.
+Three ways to supply the images that stand in for scanner output:
+
+- **Drop the folder onto the page**: the exam page has a drop zone; drag
+  the study folder (or files) straight from Windows Explorer onto it, or
+  click the zone to get a folder picker. The browser uploads the file
+  contents to the local server, which stages a copy under
+  `WORK_DIR\_dropped\` and scans it like any other folder. Because only
+  contents (never paths) cross the browser boundary, this works in every
+  setup, including when the app runs as a Windows service. Staged copies
+  are cleared on the next app start.
+- **Browse at exam time**: after selecting a worklist item, the exam page
+  offers a **Choose folder...** button that opens the real Windows Select
+  Folder dialog (the server runs on the same machine, so it can show the
+  dialog on this desktop), plus an in-page folder browser (drives,
+  breadcrumbs, subfolders) as fallback. Either way the app live-scans the
+  chosen folder and shows its modality, study/series/instance counts, and
+  the folder's own patient; when the folder holds exactly one study of the
+  scheduled modality, a "Start Exam with this folder" button appears.
+  Folders holding multiple studies are refused (a procedure step acquires
+  one study). The native dialog needs a desktop session: it works when the
+  app is launched with `start-modality.bat`, not when it runs as a Windows
+  service; the in-page browser always works.
+- **Sample library quick picks**: create `C:\LabSamples` and put **one
+  subfolder per sample study** in it, e.g. `C:\LabSamples\CT Chest Demo\...`.
+  Matching library studies are offered as one-click choices, and the browser
+  starts there. Files dropped directly into `C:\LabSamples` (not in a
+  subfolder) are ignored, and the UI warns about them.
+- The Worklist page has a **Sample library** panel that rescans on every
+  page load and shows exactly what the app discovered: each folder, its
+  modality, and how many files were readable as DICOM. If samples are "not
+  found", start there; it names the precise path the app is checking.
 - The modality of a sample is read from `Modality (0008,0060)` in the files,
   never from the folder name. With `FILTER_SAMPLES_BY_MODALITY = True` only
   samples matching the selected order's scheduled modality are offered.
@@ -116,6 +144,13 @@ Class, pixel data, image geometry, and the transfer syntax (no transcoding).
   association attempt and rejection.
 - **Worklist empty**: the Order Entry System only serves orders with status
   SCHEDULED. Check the station AE filter matches how the order was scheduled.
+- **"The sample directory does not exist"**: the app checks the exact path
+  shown in the Sample studies panel. Verify the folder name spelling, and
+  make sure the app runs on Windows itself (via `start-modality.bat`), not
+  inside WSL; a WSL process sees `C:\LabSamples` as `/mnt/c/LabSamples`.
+- **Sample folder listed but "no readable DICOM Part 10 files"**: the files
+  are not standard DICOM Part 10 (missing preamble/DICM marker) or are
+  corrupt. Export them from a viewer or archive as standard DICOM files.
 - **C-STORE rejected for some instances**: the archive refused that SOP Class
   or transfer syntax; the per-instance result table names the file. The app
   deliberately does not transcode.

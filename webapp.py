@@ -7,10 +7,12 @@ and easy to reason about. Restarting the app clears it.
 """
 
 import logging
-from datetime import date
+import shutil
+from datetime import date, datetime
 from pathlib import Path
+from urllib.parse import quote
 
-from fastapi import FastAPI, Form, Request
+from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
@@ -125,6 +127,8 @@ def worklist_page(request: Request):
         "echo": state.echo,
         "exam": state.exam,
         "today": date.today().strftime("%Y%m%d"),
+        "sample_info": samples.base_dir_info(),
+        "all_samples": samples.scan_all(),
     })
 
 
@@ -208,39 +212,111 @@ def select_order(item: int):
 
 
 @app.get("/exam")
-def exam_page(request: Request):
+def exam_page(request: Request, path: str = None):
+    """The exam workflow page. While no sample is chosen, `path` drives the
+    server-side folder browser (the app runs on the student's machine, so
+    browsing the local filesystem from here is intentional)."""
     exam = state.exam
     if exam is None:
         return RedirectResponse("/", status_code=303)
     error, exam.error = exam.error, None  # show each error once
 
     row = _wl_row(0, exam.wl_item)
-    sample_list = []
+    sample_list, sample_info, browser = [], None, None
     if exam.status == "SELECTED":
+        sample_info = samples.base_dir_info()
         sample_list = samples.scan_samples(
             modality=row["modality"] if config.FILTER_SAMPLES_BY_MODALITY else None
         )
+        browser = samples.browse(path)
     return templates.TemplateResponse(request, "exam.html", {
         "cfg": _config_view(),
         "exam": exam,
         "order": row,
         "sample_list": sample_list,
+        "sample_info": sample_info,
+        "browser": browser,
         "filter_by_modality": config.FILTER_SAMPLES_BY_MODALITY,
         "error": error,
     })
 
 
+@app.post("/exam/drop")
+async def drop_study(files: list[UploadFile] = File(...),
+                     paths: list[str] = Form(...)):
+    """Receive a study folder dropped onto (or picked into) the browser.
+
+    Browsers never reveal local paths, only file contents, so the page
+    uploads the bytes and we stage them under WORK_DIR. That staged copy
+    then goes through the same scan, guards, and acquisition as any browsed
+    folder. Works even with no desktop session (unlike the native dialog).
+    """
+    exam = state.exam
+    if exam is None or exam.status != "SELECTED":
+        return {"error": "No exam is waiting for images."}
+    if len(files) != len(paths):
+        return {"error": "Upload was malformed (file/path count mismatch)."}
+
+    stage = (Path(config.WORK_DIR) / "_dropped"
+             / datetime.now().strftime("%Y%m%d_%H%M%S"))
+    saved = 0
+    for upload, rel in zip(files, paths):
+        # The relative path comes from the browser; keep only safe parts.
+        parts = [p for p in str(rel).replace("\\", "/").split("/")
+                 if p not in ("", ".", "..") and ":" not in p]
+        if not parts:
+            continue
+        dest = stage.joinpath(*parts)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        with open(dest, "wb") as out:
+            shutil.copyfileobj(upload.file, out)
+        saved += 1
+    if not saved:
+        return {"error": "Nothing usable was received."}
+    logger.info("Browser drop: %d file(s) staged under %s", saved, stage)
+    return {"path": str(stage), "count": saved}
+
+
+@app.post("/exam/pick")
+def pick_folder():
+    """Open the native OS folder picker on the workstation's own desktop and
+    jump the in-page browser to whatever the student chose there. The dialog
+    blocks this request until it is closed; the app is single-user, so
+    nothing else is waiting."""
+    exam = state.exam
+    if exam is None or exam.status != "SELECTED":
+        return RedirectResponse("/exam", status_code=303)
+    path, err = samples.pick_folder_native()
+    if err:
+        exam.error = err
+    if path is None:  # cancelled or unavailable
+        return RedirectResponse("/exam", status_code=303)
+    logger.info("Folder chosen in the native dialog: %s", path)
+    return RedirectResponse(f"/exam?path={quote(path)}", status_code=303)
+
+
 @app.post("/exam/start")
-def start_exam(sample_name: str = Form(...)):
-    """Start Exam: bind the sample study, then MPPS N-CREATE (IN PROGRESS).
-    This is the message that makes the order leave the worklist."""
+def start_exam(sample_path: str = Form(...)):
+    """Start Exam: bind the chosen study folder (library quick pick or any
+    browsed folder), then MPPS N-CREATE (IN PROGRESS). This is the message
+    that makes the order leave the worklist."""
     exam = state.exam
     if exam is None or exam.status != "SELECTED":
         return RedirectResponse("/exam", status_code=303)
 
-    sample = samples.get_sample(sample_name)
+    sample = samples.get_sample(sample_path)
     if sample is None:
-        exam.error = f"Sample study {sample_name!r} was not found. Rescan and retry."
+        exam.error = (
+            f"No readable DICOM was found under {sample_path!r}. "
+            "Browse to a folder that holds the study's files."
+        )
+        return RedirectResponse("/exam", status_code=303)
+    if sample.study_count > 1:
+        exam.error = (
+            f"The folder '{sample.name}' holds {sample.study_count} different "
+            "studies. A procedure step acquires one study; browse into the "
+            "folder of a single study."
+        )
         return RedirectResponse("/exam", status_code=303)
     modality = str(wl_sps(exam.wl_item).get("Modality", ""))
     if config.FILTER_SAMPLES_BY_MODALITY and not sample.matches_modality(modality):

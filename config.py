@@ -49,8 +49,10 @@ PACS_AE_TITLE = _env("MODEMU_PACS_AET", "DCM4CHEE")  # confirm against the archi
 # ---------------------------------------------------------------------------
 # Sample data (student-supplied ready-made DICOM studies)
 # ---------------------------------------------------------------------------
-# Each immediate subfolder of SAMPLE_BASE_DIR is one sample study.
-# Originals are never modified; re-stamped copies go to WORK_DIR.
+# The sample library: each immediate subfolder is one sample study, offered
+# as a quick pick. The exam page can also browse to any local folder, with
+# the browser starting here. Originals are never modified; re-stamped copies
+# go to WORK_DIR.
 SAMPLE_BASE_DIR = _env("MODEMU_SAMPLE_DIR", "C:\\LabSamples")
 WORK_DIR = _env("MODEMU_WORK_DIR", "C:\\LabWork")
 

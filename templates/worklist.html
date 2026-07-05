@@ -49,6 +49,54 @@
 </div>
 
 <div class="card">
+  <h2>Sample library (the simulated scanner output)</h2>
+  <p class="explain">
+    This emulator does not have a real scanner, so ready-made DICOM studies
+    stand in for image acquisition. Each immediate subfolder of the library
+    directory is one sample study; its modality is read from the files
+    themselves. During an exam you can also browse to any other local folder
+    instead. This panel rescans on every page load.
+  </p>
+  {% if not sample_info.exists %}
+  <div class="banner-error">
+    The sample library directory does not exist as seen by this app:
+    <code>{{ sample_info.path }}</code><br>
+    {{ sample_info.hint }}
+  </div>
+  {% else %}
+    {% if sample_info.loose_dicom %}
+    <div class="banner-error">
+      {{ sample_info.loose_dicom }} DICOM file(s) sit directly in
+      <code>{{ sample_info.path }}</code> and are ignored. Move each study
+      into its own subfolder, e.g. <code>{{ sample_info.path }}\CT Chest Demo\</code>.
+    </div>
+    {% endif %}
+    {% if all_samples %}
+    <table>
+      <tr><th>Sample folder</th><th>Modality</th><th>Series</th>
+          <th>DICOM instances</th><th>Sample's own patient</th><th>Description</th><th>Status</th></tr>
+      {% for smp in all_samples %}
+      <tr>
+        <td>{{ smp.name }}</td>
+        <td>{{ smp.modality_label }}</td>
+        <td>{{ smp.series_count }}</td>
+        <td>{{ smp.file_count }} of {{ smp.total_files }} file(s)</td>
+        <td>{{ smp.patient_name }}{% if smp.patient_id %} ({{ smp.patient_id }}){% endif %}</td>
+        <td>{{ smp.study_description }}</td>
+        <td>{% if smp.file_count %}<span class="ok">ready</span>
+            {% else %}<span class="fail">no readable DICOM Part 10 files</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% else %}
+    <p class="empty"><code>{{ sample_info.path }}</code> exists but has no
+      subfolders. Create one subfolder per sample study and put the DICOM
+      files inside.</p>
+    {% endif %}
+  {% endif %}
+</div>
+
+<div class="card">
   <h2>Step 1 - Query Worklist (MWL C-FIND)</h2>
   <p class="explain">
     The modality asks the Order Filler for scheduled procedure steps with a

@@ -48,15 +48,21 @@
 
 {% if s == "SELECTED" %}
 <div class="card">
-  <h2>Step 2 - Pick a sample study, then start the exam</h2>
+  <h2>Step 2 - Pick the images to acquire (simulated acquisition)</h2>
   <p class="explain">
-    The sample supplies the pixels; the worklist supplies the identity.
+    This is the image acquisition part of the exam. A real modality would
+    scan the patient here; in this lab a ready-made sample study stands in
+    for the scanner output. The sample supplies only the pixels; the
+    worklist supplies the identity that will be stamped onto them.
     {% if filter_by_modality %}Only samples whose Modality (0008,0060)
     matches the scheduled <b>{{ order.modality }}</b> step are listed.{% endif %}
     Pressing <b>Start Exam</b> sends MPPS N-CREATE (IN PROGRESS) to the Order
     Filler; that is the message that takes this item off the worklist.
   </p>
   {% if sample_list %}
+  <h3>Sample library quick picks</h3>
+  <p class="hint">From <code>{{ sample_info.path }}</code>. Or browse to any
+    other folder below.</p>
   <form method="post" action="/exam/start">
     <table>
       <tr><th></th><th>Sample folder</th><th>Modality</th><th>Series</th>
@@ -64,7 +70,7 @@
           <th>Description</th></tr>
       {% for smp in sample_list %}
       <tr>
-        <td><input type="radio" name="sample_name" value="{{ smp.name }}"
+        <td><input type="radio" name="sample_path" value="{{ smp.path }}"
                    style="width:auto" {{ "required" if loop.first }}></td>
         <td>{{ smp.name }}</td>
         <td>{{ smp.modality_label }}</td>
@@ -79,18 +85,99 @@
       <button>Start Exam (MPPS N-CREATE)</button>
     </p>
   </form>
+  {% elif not sample_info.exists %}
+  <div class="banner-info">
+    The sample library folder <code>{{ sample_info.path }}</code> does not
+    exist as seen by this app ({{ sample_info.hint }})
+    Browse to the study folder below instead.
+  </div>
+  {% else %}
+  <p class="hint">No {{ order.modality }} studies in the sample library
+    <code>{{ sample_info.path }}</code>. Browse to the study folder below.</p>
+  {% endif %}
+
+  <h3>Drop the study folder here</h3>
+  <div id="dropzone" style="border:2px dashed var(--border); border-radius:8px;
+       padding:1.6rem 1rem; text-align:center; color:#5c6b78; cursor:pointer;
+       background:#fafbfc; margin-bottom:0.8rem">
+    Drag the study folder (or its files) from Windows Explorer and drop it
+    here, or click to pick a folder.<br>
+    <span class="hint">The browser copies the files to the emulator's work
+      area; the originals are never touched.</span>
+    <div id="dropstatus" style="margin-top:0.5rem; font-weight:600"></div>
+  </div>
+  <input type="file" id="droppicker" webkitdirectory multiple style="display:none">
+
+  <h3>Or use the Windows folder dialog / browse in the page</h3>
+  <form method="post" action="/exam/pick" style="margin:0.2rem 0 0.8rem">
+    <button>Choose folder... (opens the Windows Select Folder dialog)</button>
+  </form>
+  <p class="hint">The dialog opens on this workstation's desktop; look for it
+    behind the browser window if it does not appear on top. Or navigate here
+    in the page instead:</p>
+  {% if browser.roots | length > 1 %}
+  <p class="hint">Drives:
+    {% for r in browser.roots %}
+    <a href="/exam?path={{ r | urlencode }}"><code>{{ r }}</code></a>
+    {% endfor %}
+  </p>
+  {% endif %}
+  <p style="font-size:0.9rem">
+    {% for name, p in browser.crumbs %}<a href="/exam?path={{ p | urlencode }}">{{ name }}</a>{% if not loop.last %} <span class="hint">&rsaquo;</span> {% endif %}{% endfor %}
+  </p>
+  {% if browser.error %}<p class="fail">{{ browser.error }}</p>{% endif %}
+  {% if browser.subfolders %}
+  <p style="line-height:1.9">
+    {% for name, p in browser.subfolders %}
+    <a href="/exam?path={{ p | urlencode }}" style="display:inline-block; background:#eef2f6;
+       border:1px solid var(--border); border-radius:4px; padding:0.2rem 0.6rem;
+       margin-right:0.4rem; text-decoration:none; color:#1e2933">&#128193; {{ name }}</a>
+    {% endfor %}
+  </p>
+  {% else %}
+  <p class="hint">No subfolders here.</p>
+  {% endif %}
+
+  {% set sc = browser.scan %}
+  {% if sc.file_count %}
+  <table>
+    <tr><th>This folder</th><th>Modality</th><th>Studies</th><th>Series</th>
+        <th>DICOM instances</th><th>Folder's own patient (will be replaced)</th><th>Description</th></tr>
+    <tr>
+      <td><code>{{ browser.current }}</code></td>
+      <td>{{ sc.modality_label }}</td>
+      <td>{{ sc.study_count }}</td>
+      <td>{{ sc.series_count }}</td>
+      <td>{{ sc.file_count }} of {{ sc.total_files }} file(s){% if sc.truncated %}
+        <span class="hint">(large folder, scan capped)</span>{% endif %}</td>
+      <td>{{ sc.patient_name }}{% if sc.patient_id %} ({{ sc.patient_id }}){% endif %}</td>
+      <td>{{ sc.study_description }}</td>
+    </tr>
+  </table>
+  {% if sc.study_count > 1 %}
+  <p class="fail">This folder holds {{ sc.study_count }} different studies. A
+    procedure step acquires one study; open the folder of a single study.</p>
+  {% elif filter_by_modality and not sc.matches_modality(order.modality) %}
+  <p class="fail">This folder's modality is {{ sc.modality_label }}, but the
+    order is scheduled for {{ order.modality }}.</p>
+  {% else %}
+  <form method="post" action="/exam/start" style="margin-top:0.6rem">
+    <input type="hidden" name="sample_path" value="{{ browser.current }}">
+    <button>Start Exam with this folder (MPPS N-CREATE)</button>
+  </form>
+  {% endif %}
+  {% else %}
+  <p class="hint">No readable DICOM in this folder
+    {%- if sc.total_files %} ({{ sc.total_files }} non-DICOM file(s)
+    {%- if sc.truncated %} checked before the scan cap{% endif %}){% endif %}.
+    Open the folder that holds the study's DICOM files.</p>
+  {% endif %}
+
+  <p style="margin-top:1rem">
   <form method="post" action="/exam/discard" style="display:inline">
     <button class="small" style="background:#5c6b78">Back to worklist (discard selection)</button>
   </form>
-  {% else %}
-  <p class="empty">No sample studies
-    {% if filter_by_modality %}with modality {{ order.modality }}{% endif %}
-    were found under <code>{{ cfg.sample_dir }}</code>. Each immediate
-    subfolder of that directory is one sample study.</p>
-  <form method="post" action="/exam/discard" style="display:inline">
-    <button class="small" style="background:#5c6b78">Back to worklist</button>
-  </form>
-  {% endif %}
+  </p>
 </div>
 {% endif %}
 
@@ -99,9 +186,10 @@
   <h2>Step 4 - Acquire images</h2>
   <p class="explain">
     The procedure step is IN PROGRESS on the Order Filler (re-query the
-    worklist: this item is gone). Acquiring copies the sample study
-    <b>{{ exam.sample.name }}</b> into the work area and re-stamps every
-    instance with the order's identity. The originals are never modified.
+    worklist: this item is gone). Acquiring simulates the scan itself: the
+    sample study <b>{{ exam.sample.name }}</b> is copied into the work area
+    as freshly generated images, re-stamped with the order's identity. The
+    originals are never modified.
   </p>
   <form method="post" action="/exam/acquire">
     <button>Acquire (copy + re-stamp)</button>
@@ -231,6 +319,93 @@
     <button class="danger">Discontinue (MPPS N-SET DISCONTINUED)</button>
   </form>
 </div>
+{% endif %}
+
+{% if s == "SELECTED" %}
+<script>
+/* Drop-a-folder acquisition source. Browsers upload file CONTENTS, never
+   local paths, so the server stages the bytes and the normal scan/guard
+   flow takes over at the staged location. */
+(function () {
+  const zone = document.getElementById("dropzone");
+  const picker = document.getElementById("droppicker");
+  const status = document.getElementById("dropstatus");
+  if (!zone) return;
+
+  function setStatus(text, bad) {
+    status.textContent = text;
+    status.style.color = bad ? "#a33030" : "#0e6e6e";
+  }
+
+  /* Recursively walk a dropped directory entry; readEntries returns
+     batches of at most 100, so loop until an empty batch. */
+  async function collectEntry(entry, prefix, out) {
+    if (entry.isFile) {
+      const file = await new Promise((res, rej) => entry.file(res, rej));
+      out.push({ file: file, rel: prefix + entry.name });
+    } else if (entry.isDirectory) {
+      const reader = entry.createReader();
+      for (;;) {
+        const batch = await new Promise((res, rej) => reader.readEntries(res, rej));
+        if (!batch.length) break;
+        for (const child of batch) {
+          await collectEntry(child, prefix + entry.name + "/", out);
+        }
+      }
+    }
+  }
+
+  async function upload(items) {
+    if (!items.length) { setStatus("Nothing usable was dropped.", true); return; }
+    setStatus("Uploading " + items.length + " file(s) to the emulator...");
+    const form = new FormData();
+    for (const it of items) {
+      form.append("files", it.file, it.file.name);
+      form.append("paths", it.rel);
+    }
+    try {
+      const resp = await fetch("/exam/drop", { method: "POST", body: form });
+      const data = await resp.json();
+      if (data.error) { setStatus(data.error, true); return; }
+      setStatus("Received " + data.count + " file(s); scanning...");
+      window.location.href = "/exam?path=" + encodeURIComponent(data.path);
+    } catch (err) {
+      setStatus("Upload failed: " + err, true);
+    }
+  }
+
+  zone.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    zone.style.background = "#e8f2f2";
+  });
+  zone.addEventListener("dragleave", () => { zone.style.background = "#fafbfc"; });
+  zone.addEventListener("drop", async (e) => {
+    e.preventDefault();
+    zone.style.background = "#fafbfc";
+    const out = [];
+    const entries = [...e.dataTransfer.items]
+      .map((i) => i.webkitGetAsEntry && i.webkitGetAsEntry())
+      .filter(Boolean);
+    if (entries.length) {
+      setStatus("Reading dropped folder...");
+      for (const entry of entries) await collectEntry(entry, "", out);
+    } else {
+      for (const f of e.dataTransfer.files) out.push({ file: f, rel: f.name });
+    }
+    await upload(out);
+  });
+
+  /* Click-to-pick fallback: the OS folder picker via webkitdirectory. */
+  zone.addEventListener("click", () => picker.click());
+  picker.addEventListener("change", async () => {
+    const out = [...picker.files].map((f) => ({
+      file: f, rel: f.webkitRelativePath || f.name,
+    }));
+    await upload(out);
+    picker.value = "";
+  });
+})();
+</script>
 {% endif %}
 
 {% if exam.is_final %}

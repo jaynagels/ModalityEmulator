@@ -8,6 +8,7 @@ exactly this file.
 """
 
 import logging
+import shutil
 import sys
 from pathlib import Path
 
@@ -51,6 +52,14 @@ def main():
             "folder per sample study inside.", config.SAMPLE_BASE_DIR,
         )
     Path(config.WORK_DIR).mkdir(parents=True, exist_ok=True)
+
+    # WORK_DIR/_dropped holds browser-uploaded copies staged for acquisition.
+    # They are disposable duplicates of the student's originals, so clear
+    # them on startup rather than letting them pile up between sessions.
+    dropped = Path(config.WORK_DIR) / "_dropped"
+    if dropped.is_dir():
+        shutil.rmtree(dropped, ignore_errors=True)
+        logger.info("Cleared staged browser uploads under %s", dropped)
 
     logger.info(
         "Modality Emulator '%s' | worklist/MPPS: %s@%s:%s | PACS: %s@%s:%s",
