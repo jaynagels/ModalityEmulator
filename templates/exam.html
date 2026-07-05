@@ -1,0 +1,252 @@
+{% extends "base.html" %}
+{% block title %}Current Exam{% endblock %}
+{% block content %}
+
+{% if error %}<div class="banner-error">{{ error }}</div>{% endif %}
+
+{% set s = exam.status %}
+<div class="steps">
+  <div class="step done"><b>1</b>Query worklist</div>
+  <div class="step {{ 'active' if s == 'SELECTED' else 'done' }}"><b>2</b>Select order + sample</div>
+  <div class="step {{ 'active' if s == 'IN PROGRESS' else ('done' if s not in ('SELECTED',) else '') }}"><b>3</b>Start (MPPS IN PROGRESS)</div>
+  <div class="step {{ 'active' if s == 'ACQUIRED' else ('done' if s in ('STORED','COMPLETED','DISCONTINUED') else '') }}"><b>4</b>Acquire (re-stamp)</div>
+  <div class="step {{ 'active' if s == 'STORED' else ('done' if s in ('COMPLETED','DISCONTINUED') else '') }}"><b>5</b>Send to PACS</div>
+  {% if s == 'DISCONTINUED' %}
+  <div class="step stopped"><b>6</b>DISCONTINUED</div>
+  {% else %}
+  <div class="step {{ 'active' if s == 'COMPLETED' else '' }}"><b>6</b>Complete (MPPS)</div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>Selected order
+    <span class="status status-{{ s.replace(' ', '_') }}">{{ s }}</span>
+  </h2>
+  <p class="explain">
+    Everything below came out of the worklist answer, not a keyboard. This
+    identity will be stamped onto the acquired images, which is how the study
+    later ties back to the order in the PACS.
+  </p>
+  <table>
+    <tr><th>Patient</th><th>MRN</th><th>DOB</th><th>Sex</th><th>Accession</th>
+        <th>Procedure</th><th>Modality</th><th>SPS start</th><th>Referring physician</th></tr>
+    <tr>
+      <td>{{ order.patient_name }}</td><td>{{ order.mrn }}</td>
+      <td>{{ order.birth_date }}</td><td>{{ order.sex }}</td>
+      <td>{{ order.accession }}</td><td>{{ order.procedure }}</td>
+      <td>{{ order.modality }}</td><td>{{ order.sps_start }}</td>
+      <td>{{ order.referring }}</td>
+    </tr>
+  </table>
+  <p class="hint">
+    Requested Procedure ID <code>{{ order.rp_id }}</code> ·
+    Scheduled Procedure Step ID <code>{{ order.sps_id }}</code> ·
+    Study Instance UID <code>{{ order.study_uid }}</code>
+    {% if exam.mpps_uid %} · MPPS SOP Instance UID <code>{{ exam.mpps_uid }}</code>{% endif %}
+  </p>
+</div>
+
+{% if s == "SELECTED" %}
+<div class="card">
+  <h2>Step 2 - Pick a sample study, then start the exam</h2>
+  <p class="explain">
+    The sample supplies the pixels; the worklist supplies the identity.
+    {% if filter_by_modality %}Only samples whose Modality (0008,0060)
+    matches the scheduled <b>{{ order.modality }}</b> step are listed.{% endif %}
+    Pressing <b>Start Exam</b> sends MPPS N-CREATE (IN PROGRESS) to the Order
+    Filler; that is the message that takes this item off the worklist.
+  </p>
+  {% if sample_list %}
+  <form method="post" action="/exam/start">
+    <table>
+      <tr><th></th><th>Sample folder</th><th>Modality</th><th>Series</th>
+          <th>Instances</th><th>Sample's own patient (will be replaced)</th>
+          <th>Description</th></tr>
+      {% for smp in sample_list %}
+      <tr>
+        <td><input type="radio" name="sample_name" value="{{ smp.name }}"
+                   style="width:auto" {{ "required" if loop.first }}></td>
+        <td>{{ smp.name }}</td>
+        <td>{{ smp.modality_label }}</td>
+        <td>{{ smp.series_count }}</td>
+        <td>{{ smp.file_count }}</td>
+        <td>{{ smp.patient_name }} ({{ smp.patient_id }})</td>
+        <td>{{ smp.study_description }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    <p class="actions">
+      <button>Start Exam (MPPS N-CREATE)</button>
+    </p>
+  </form>
+  <form method="post" action="/exam/discard" style="display:inline">
+    <button class="small" style="background:#5c6b78">Back to worklist (discard selection)</button>
+  </form>
+  {% else %}
+  <p class="empty">No sample studies
+    {% if filter_by_modality %}with modality {{ order.modality }}{% endif %}
+    were found under <code>{{ cfg.sample_dir }}</code>. Each immediate
+    subfolder of that directory is one sample study.</p>
+  <form method="post" action="/exam/discard" style="display:inline">
+    <button class="small" style="background:#5c6b78">Back to worklist</button>
+  </form>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if s == "IN PROGRESS" %}
+<div class="card">
+  <h2>Step 4 - Acquire images</h2>
+  <p class="explain">
+    The procedure step is IN PROGRESS on the Order Filler (re-query the
+    worklist: this item is gone). Acquiring copies the sample study
+    <b>{{ exam.sample.name }}</b> into the work area and re-stamps every
+    instance with the order's identity. The originals are never modified.
+  </p>
+  <form method="post" action="/exam/acquire">
+    <button>Acquire (copy + re-stamp)</button>
+  </form>
+</div>
+{% endif %}
+
+{% if exam.restamp_result %}
+{% set rs = exam.restamp_result %}
+<div class="card">
+  <h2>Re-stamp preview: what the worklist wrote onto the images</h2>
+  <p class="explain">
+    Red is the sample study's original value, green is what every acquired
+    instance now carries. Note the Study Instance UID: it is <b>adopted from
+    the worklist</b>, not generated, so the PACS study is the order's study.
+    Series and SOP Instance UIDs are newly generated because these are new
+    images, not the sample originals.
+  </p>
+  <table>
+    <tr><th>Attribute</th><th>Tag</th><th>Sample value (before)</th><th>Acquired value (after)</th></tr>
+    {% for c in rs.tag_changes %}
+    <tr>
+      <td>{{ c.keyword }}</td>
+      <td class="tag"><code>{{ c.tag }}</code></td>
+      <td class="{{ 'old' if c.changed }}">{{ c.old or "(empty)" }}</td>
+      <td class="{{ 'new' if c.changed }}">{{ c.new or "(empty)" }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+
+  <h3>Request Attributes Sequence (0040,0275), added to every image</h3>
+  <p class="hint">This is the SWF back-link from each image to the order.</p>
+  <table>
+    {% for label, value in rs.request_attributes %}
+    <tr><td>{{ label }}</td><td><code>{{ value }}</code></td></tr>
+    {% endfor %}
+  </table>
+
+  <h3>Freshly generated UIDs</h3>
+  <table>
+    <tr><th>Source series UID</th><th>New series UID</th></tr>
+    {% for old, new in rs.series_map.items() %}
+    <tr><td><code>{{ old }}</code></td><td><code>{{ new }}</code></td></tr>
+    {% endfor %}
+  </table>
+  <details style="margin-top:0.6rem">
+    <summary class="hint" style="cursor:pointer">
+      Per-instance SOP Instance UIDs ({{ rs.instances | length }} instance(s))
+    </summary>
+    <table>
+      <tr><th>File</th><th>SOP Class</th><th>Old SOP Instance UID</th>
+          <th>New SOP Instance UID</th><th>Transfer syntax (unchanged)</th></tr>
+      {% for rec in rs.instances %}
+      <tr>
+        <td>{{ rec.rel_path }}</td>
+        <td>{{ rec.sop_class_name }}</td>
+        <td class="old"><code>{{ rec.old_sop_uid }}</code></td>
+        <td class="new"><code>{{ rec.new_sop_uid }}</code></td>
+        <td>{{ rec.transfer_syntax }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  </details>
+  <p class="hint">Re-stamped copies: <code>{{ rs.work_dir }}</code></p>
+</div>
+{% endif %}
+
+{% if s == "ACQUIRED" %}
+<div class="card">
+  <h2>Step 5 - Send to PACS (C-STORE)</h2>
+  <p class="explain">
+    C-STORE pushes each re-stamped instance to
+    <code>{{ cfg.pacs }}</code>. Afterwards, find the study in the archive:
+    it appears under <b>{{ order.patient_name }}</b>, accession
+    <b>{{ order.accession }}</b>, not under the sample's original patient.
+  </p>
+  <form method="post" action="/exam/store">
+    <button>Send {{ exam.restamp_result.instances | length }} instance(s) to PACS</button>
+  </form>
+</div>
+{% endif %}
+
+{% if exam.store_results %}
+<div class="card">
+  <h2>C-STORE results</h2>
+  <table>
+    <tr><th>File</th><th>SOP Instance UID</th><th>Result</th></tr>
+    {% for r in exam.store_results %}
+    <tr>
+      <td>{{ r.filename }}</td>
+      <td><code>{{ r.sop_instance_uid }}</code></td>
+      <td class="{{ 'ok' if r.success else 'fail' }}">{{ r.detail }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% if s == "STORED" and not exam.store_ok %}
+  <form method="post" action="/exam/store" style="margin-top:0.8rem">
+    <button>Retry send</button>
+  </form>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if s == "STORED" and exam.store_ok %}
+<div class="card">
+  <h2>Step 6 - Complete the procedure step</h2>
+  <p class="explain">
+    MPPS N-SET with status COMPLETED tells the Order Filler the step is done
+    and lists every stored series and instance in the Performed Series
+    Sequence. The order flips to COMPLETED on the Order Entry System.
+  </p>
+  <form method="post" action="/exam/complete">
+    <button>Complete (MPPS N-SET COMPLETED)</button>
+  </form>
+</div>
+{% endif %}
+
+{% if s in ("IN PROGRESS", "ACQUIRED", "STORED") %}
+<div class="card">
+  <h3>Discontinue</h3>
+  <p class="explain">
+    Abandoning the exam sends MPPS N-SET with status DISCONTINUED; the Order
+    Filler maps the order back to DISCONTINUED. Use this if the patient never
+    made it onto the table.
+  </p>
+  <form method="post" action="/exam/discontinue">
+    <button class="danger">Discontinue (MPPS N-SET DISCONTINUED)</button>
+  </form>
+</div>
+{% endif %}
+
+{% if exam.is_final %}
+<div class="card">
+  <h2>Exam finished: {{ s }}</h2>
+  <p class="explain">
+    Check the Order Entry System's order list: this order now shows
+    <b>{{ s }}</b>.
+    {% if s == "COMPLETED" %}Then open the study in the DCM4CHEE UI or a
+    viewer and confirm it carries the order's demographics, not the
+    sample's.{% endif %}
+  </p>
+  <form method="post" action="/exam/discard">
+    <button>Finish and return to the worklist</button>
+  </form>
+</div>
+{% endif %}
+
+{% endblock %}

@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block title %}Worklist{% endblock %}
+{% block content %}
+
+{% if exam %}
+<div class="banner-info">
+  An exam is in progress for <b>{{ exam.wl_item.get("PatientName", "?") }}</b>
+  (status <span class="status status-{{ exam.status.replace(' ', '_') }}">{{ exam.status }}</span>).
+  <a href="/exam">Go to the current exam</a>.
+</div>
+{% endif %}
+
+{% if echo.get("query_error") %}
+<div class="banner-error">Worklist query failed: {{ echo["query_error"] }}</div>
+{% endif %}
+
+<div class="card">
+  <h2>Connections</h2>
+  <p class="explain">
+    This workstation is the Acquisition Modality, AE title
+    <code>{{ cfg.mod_aet }}</code>. It queries the worklist and reports
+    procedure steps to the Order Filler, and stores images to the PACS.
+    All connections are outbound; use C-ECHO to verify both peers before
+    you begin.
+  </p>
+  <table>
+    <tr>
+      <th>Peer</th><th>Address</th><th>Used for</th><th>Test</th><th>Last result</th>
+    </tr>
+    <tr>
+      <td>Order Entry System</td>
+      <td><code>{{ cfg.of }}</code></td>
+      <td>MWL C-FIND, MPPS N-CREATE / N-SET</td>
+      <td><form method="post" action="/echo/of"><button class="small">C-ECHO</button></form></td>
+      <td>{% if echo.get("of") %}
+            <span class="{{ 'ok' if echo['of'].startswith('OK') else 'fail' }}">{{ echo["of"] }}</span>
+          {% else %}<span class="hint">not tested</span>{% endif %}</td>
+    </tr>
+    <tr>
+      <td>PACS (DCM4CHEE)</td>
+      <td><code>{{ cfg.pacs }}</code></td>
+      <td>C-STORE</td>
+      <td><form method="post" action="/echo/pacs"><button class="small">C-ECHO</button></form></td>
+      <td>{% if echo.get("pacs") %}
+            <span class="{{ 'ok' if echo['pacs'].startswith('OK') else 'fail' }}">{{ echo["pacs"] }}</span>
+          {% else %}<span class="hint">not tested</span>{% endif %}</td>
+    </tr>
+  </table>
+</div>
+
+<div class="card">
+  <h2>Step 1 - Query Worklist (MWL C-FIND)</h2>
+  <p class="explain">
+    The modality asks the Order Filler for scheduled procedure steps with a
+    DICOM C-FIND against the Modality Worklist. Leave a filter blank to match
+    everything. Patient name accepts <code>*</code> and <code>?</code>
+    wildcards; dates are <code>YYYYMMDD</code>.
+  </p>
+  <form method="post" action="/query">
+    <div class="filters">
+      <div>
+        <label>Patient name</label>
+        <input name="patient_name" value="{{ filters.get('patient_name','') }}" placeholder="DOE^J*">
+      </div>
+      <div>
+        <label>Modality</label>
+        <select name="modality">
+          {% for m in ["", "CT", "MR", "CR", "DX", "US", "NM", "PT", "XA", "MG"] %}
+          <option value="{{ m }}" {{ "selected" if filters.get("modality","") == m else "" }}>{{ m or "(any)" }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label>SPS start date from</label>
+        <input name="date_from" value="{{ filters.get('date_from','') }}" placeholder="{{ today }}">
+      </div>
+      <div>
+        <label>SPS start date to</label>
+        <input name="date_to" value="{{ filters.get('date_to','') }}" placeholder="blank = single date">
+      </div>
+      <div>
+        <label>Scheduled station AE</label>
+        <input name="station_aet" value="{{ filters.get('station_aet', cfg.mod_aet) }}">
+      </div>
+      <div>
+        <label>Accession number</label>
+        <input name="accession" value="{{ filters.get('accession','') }}">
+      </div>
+    </div>
+    <p><button>Query Worklist</button></p>
+  </form>
+
+  {% if query_ran %}
+    {% if rows %}
+    <table>
+      <tr>
+        <th>Patient</th><th>MRN</th><th>DOB</th><th>Sex</th><th>Accession</th>
+        <th>Procedure</th><th>Modality</th><th>SPS start</th><th>Station AE</th><th></th>
+      </tr>
+      {% for r in rows %}
+      <tr>
+        <td>{{ r.patient_name }}</td>
+        <td>{{ r.mrn }}</td>
+        <td>{{ r.birth_date }}</td>
+        <td>{{ r.sex }}</td>
+        <td>{{ r.accession }}</td>
+        <td>{{ r.procedure }}</td>
+        <td>{{ r.modality }}</td>
+        <td>{{ r.sps_start }}</td>
+        <td>{{ r.station_aet }}</td>
+        <td>
+          <form method="get" action="/exam/select">
+            <input type="hidden" name="item" value="{{ r.idx }}">
+            <button class="small">Select</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+    <p class="hint">{{ rows | length }} scheduled item(s). Selecting one starts
+      Step 2: choosing a sample study to acquire.</p>
+    {% else %}
+    <p class="empty">The query completed but returned no scheduled items.
+      Schedule an order on the Order Entry System, or widen the filters.</p>
+    {% endif %}
+  {% endif %}
+</div>
+
+{% endblock %}

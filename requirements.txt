@@ -1,0 +1,13 @@
+# Modality Emulator - Python dependencies
+#
+# Install with:
+#   pip install -r requirements.txt
+#
+# Python 3.9+ required.
+
+fastapi>=0.110          # web UI
+uvicorn>=0.29           # ASGI server
+jinja2>=3.1             # server-rendered templates
+python-multipart>=0.0.9 # HTML form parsing for FastAPI
+pydicom>=2.4.0          # DICOM file reading / re-stamping
+pynetdicom>=2.0.2       # DICOM network protocol (MWL, MPPS, C-STORE, C-ECHO)

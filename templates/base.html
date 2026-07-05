@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Modality Emulator{% endblock %} - DICOM Lab</title>
+<style>
+  :root { --teal:#0e6e6e; --bg:#f4f6f8; --border:#d5dbe1; }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+         margin: 0; background: var(--bg); color: #1e2933; }
+  header { background: var(--teal); color: #fff; padding: 0.7rem 1.2rem;
+           display: flex; align-items: baseline; gap: 1.2rem; }
+  header h1 { font-size: 1.1rem; margin: 0; }
+  header .sub { font-size: 0.8rem; opacity: 0.85; }
+  nav a { color: #cdeaea; margin-right: 1rem; text-decoration: none; font-size: 0.9rem; }
+  nav a:hover { color: #fff; }
+  main { max-width: 1180px; margin: 1.2rem auto; padding: 0 1rem; }
+  .card { background: #fff; border: 1px solid var(--border); border-radius: 6px;
+          padding: 1.2rem 1.4rem; margin-bottom: 1.2rem; }
+  h2 { margin-top: 0; font-size: 1.05rem; color: var(--teal); }
+  h3 { font-size: 0.95rem; color: var(--teal); margin-bottom: 0.4rem; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.88rem; }
+  th, td { border-bottom: 1px solid var(--border); padding: 0.45rem 0.6rem;
+           text-align: left; vertical-align: top; }
+  th { background: #eef2f6; font-weight: 600; }
+  label { display: block; font-size: 0.82rem; font-weight: 600; margin-bottom: 0.2rem; }
+  input, select { width: 100%; padding: 0.4rem 0.5rem; border: 1px solid var(--border);
+                  border-radius: 4px; font-size: 0.9rem; background: #fff; }
+  .filters { display: grid; grid-template-columns: repeat(6, 1fr); gap: 0.9rem 1.2rem;
+             align-items: end; }
+  button { background: var(--teal); color: #fff; border: 0; border-radius: 4px;
+           padding: 0.55rem 1.4rem; font-size: 0.95rem; cursor: pointer; }
+  button:hover { filter: brightness(1.1); }
+  button:disabled { background: #9db4b4; cursor: not-allowed; }
+  button.danger { background: #a33030; }
+  button.small { padding: 0.3rem 0.8rem; font-size: 0.82rem; }
+  .status { display: inline-block; padding: 0.15rem 0.55rem; border-radius: 10px;
+            font-size: 0.78rem; font-weight: 600; white-space: nowrap; }
+  .status-SELECTED     { background: #e3edf7; color: #1c5d99; }
+  .status-IN_PROGRESS  { background: #fdf3d7; color: #8a6d1a; }
+  .status-ACQUIRED     { background: #e8e3f7; color: #4a3a8a; }
+  .status-STORED       { background: #dff0f0; color: #0e6e6e; }
+  .status-COMPLETED    { background: #e2f3e5; color: #1e7b34; }
+  .status-DISCONTINUED { background: #fbe4e4; color: #a33030; }
+  .hint { font-size: 0.78rem; color: #5c6b78; margin-top: 0.15rem; }
+  .empty { color: #5c6b78; font-style: italic; padding: 1rem 0; }
+  code { background: #eef2f6; padding: 0.1rem 0.3rem; border-radius: 3px;
+         font-size: 0.85em; overflow-wrap: anywhere; }
+  td.tag code { white-space: nowrap; }
+  .banner-error { background: #fbe4e4; border: 1px solid #e3b3b3; color: #a33030;
+                  border-radius: 6px; padding: 0.7rem 1rem; margin-bottom: 1.2rem; }
+  .banner-info  { background: #e3edf7; border: 1px solid #b3cbe3; color: #1c5d99;
+                  border-radius: 6px; padding: 0.7rem 1rem; margin-bottom: 1.2rem; }
+  .explain { background: #f0f7f7; border-left: 4px solid var(--teal);
+             padding: 0.6rem 0.9rem; font-size: 0.85rem; color: #2c4a4a;
+             margin: 0 0 1rem; border-radius: 0 4px 4px 0; }
+  .steps { display: flex; gap: 0; margin-bottom: 1.2rem; flex-wrap: wrap; }
+  .step { flex: 1; min-width: 120px; text-align: center; font-size: 0.78rem;
+          padding: 0.5rem 0.3rem; background: #e8ecef; color: #5c6b78;
+          border-right: 2px solid #fff; }
+  .step:first-child { border-radius: 6px 0 0 6px; }
+  .step:last-child { border-radius: 0 6px 6px 0; border-right: 0; }
+  .step.done   { background: #cfe6d4; color: #1e7b34; }
+  .step.active { background: var(--teal); color: #fff; font-weight: 600; }
+  .step.stopped{ background: #f2caca; color: #a33030; font-weight: 600; }
+  .step b { display: block; font-size: 0.85rem; }
+  .old { color: #a33030; }
+  .new { color: #1e7b34; font-weight: 600; }
+  .ok  { color: #1e7b34; font-weight: 600; }
+  .fail{ color: #a33030; font-weight: 600; }
+  .actions { display: flex; gap: 0.8rem; align-items: center; flex-wrap: wrap; }
+  #logpanel { background: #1e2933; color: #c9d4dc; font-family: Consolas, Menlo, monospace;
+              font-size: 0.76rem; border-radius: 6px; padding: 0.8rem 1rem;
+              max-height: 240px; overflow-y: auto; white-space: pre-wrap; }
+  #logpanel .ERROR, #logpanel .CRITICAL { color: #ff8f8f; }
+  #logpanel .WARNING { color: #ffd28f; }
+  .loghead { display: flex; justify-content: space-between; align-items: baseline; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Modality Emulator</h1>
+  <span class="sub">Acquisition Modality: MWL + MPPS + C-STORE SCU</span>
+  <nav>
+    <a href="/">Worklist</a>
+    <a href="/exam">Current Exam</a>
+  </nav>
+</header>
+<main>
+{% block content %}{% endblock %}
+
+<div class="card">
+  <div class="loghead">
+    <h2>DICOM Activity Log</h2>
+    <span class="hint">live view of every association this modality opens</span>
+  </div>
+  <div id="logpanel"></div>
+</div>
+</main>
+<script>
+/* Poll the activity log so students watch the DICOM conversation live. */
+let logAfter = 0;
+async function pollLog() {
+  try {
+    const resp = await fetch("/api/log?after=" + logAfter);
+    const lines = await resp.json();
+    if (lines.length) {
+      const panel = document.getElementById("logpanel");
+      const stick = panel.scrollTop + panel.clientHeight >= panel.scrollHeight - 8;
+      for (const line of lines) {
+        const div = document.createElement("div");
+        div.className = line.level;
+        div.textContent = line.text;
+        panel.appendChild(div);
+        logAfter = line.seq;
+      }
+      while (panel.childNodes.length > 500) panel.removeChild(panel.firstChild);
+      if (stick) panel.scrollTop = panel.scrollHeight;
+    }
+  } catch (e) { /* server restarting; keep trying */ }
+  setTimeout(pollLog, 2000);
+}
+pollLog();
+</script>
+</body>
+</html>
